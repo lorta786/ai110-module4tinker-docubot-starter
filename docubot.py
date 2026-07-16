@@ -9,6 +9,7 @@ Core DocuBot class responsible for:
 
 import os
 import glob
+import re
 
 class DocuBot:
     def __init__(self, docs_folder="docs", llm_client=None):
@@ -45,26 +46,37 @@ class DocuBot:
         return docs
 
     # -----------------------------------------------------------
+    # Tokenization
+    # -----------------------------------------------------------
+
+    def tokenize(self, text):
+        """
+        Splits text into lowercase word tokens, dropping punctuation.
+
+        Both the index and the scorer go through here, so a query word
+        matches an indexed word only when they tokenize identically.
+        """
+        return re.findall(r"[a-z0-9]+", text.lower())
+
+    # -----------------------------------------------------------
     # Index Construction (Phase 1)
     # -----------------------------------------------------------
 
     def build_index(self, documents):
         """
-        TODO (Phase 1):
-        Build a tiny inverted index mapping lowercase words to the documents
-        they appear in.
+        Builds an inverted index mapping each lowercase word to the
+        filenames it appears in.
 
         Example structure:
         {
             "token": ["AUTH.md", "API_REFERENCE.md"],
             "database": ["DATABASE.md"]
         }
-
-        Keep this simple: split on whitespace, lowercase tokens,
-        ignore punctuation if needed.
         """
         index = {}
-        # TODO: implement simple indexing
+        for filename, text in documents:
+            for word in set(self.tokenize(text)):
+                index.setdefault(word, []).append(filename)
         return index
 
     # -----------------------------------------------------------
@@ -73,26 +85,39 @@ class DocuBot:
 
     def score_document(self, query, text):
         """
-        TODO (Phase 1):
-        Return a simple relevance score for how well the text matches the query.
+        Returns how many distinct query words appear in the text.
 
-        Suggested baseline:
-        - Convert query into lowercase words
-        - Count how many appear in the text
-        - Return the count as the score
+        Every word counts the same, so common words like "how" or "the"
+        weigh as much as "authentication".
         """
-        # TODO: implement scoring
-        return 0
+        query_words = set(self.tokenize(query))
+        document_words = set(self.tokenize(text))
+        return len(query_words & document_words)
 
     def retrieve(self, query, top_k=3):
         """
-        TODO (Phase 1):
-        Use the index and scoring function to select top_k relevant document snippets.
+        Selects the top_k documents most relevant to the query.
 
-        Return a list of (filename, text) sorted by score descending.
+        Returns a list of (filename, text) sorted by score descending,
+        with ties broken by filename so results stay stable.
         """
-        results = []
-        # TODO: implement retrieval logic
+        candidates = []
+        for word in set(self.tokenize(query)):
+            for filename in self.index.get(word, []):
+                if filename not in candidates:
+                    candidates.append(filename)
+
+        texts = dict(self.documents)
+
+        scored = []
+        for filename in candidates:
+            score = self.score_document(query, texts[filename])
+            if score > 0:
+                scored.append((score, filename))
+
+        scored.sort(key=lambda pair: (-pair[0], pair[1]))
+
+        results = [(filename, texts[filename]) for _, filename in scored]
         return results[:top_k]
 
     # -----------------------------------------------------------
